@@ -1,1 +1,20 @@
-.idea
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Local data and secrets
+data/
+.env

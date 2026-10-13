@@ -1,0 +1,29 @@
+# Runs the test suite on every pull request. The "tests" job is the required
+# status check in the branch ruleset, so a PR cannot be merged while it fails.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Installs the Python version from .python-version and the exact
+      # versions from uv.lock; fails if uv.lock is out of date with pyproject.toml.
+      - run: uv sync --locked
+
+      - run: uv run pytest

@@ -16,3 +16,9 @@ TRIPDATA_FILE_REGEX = os.environ.get(
 # Rolling window: how many latest published months of trips we use.
 # It moves forward by itself when a new monthly file appears.
 TRIPDATA_WINDOW_MONTHS = int(os.environ.get("BIKEFLOW_TRIPDATA_WINDOW_MONTHS", "12"))
+
+# PostgreSQL connection (SQLAlchemy URL with the psycopg 3 driver).
+# The default points to a local development database.
+DATABASE_URL = os.environ.get(
+    "BIKEFLOW_DATABASE_URL", "postgresql+psycopg://bikeflow:bikeflow@localhost:5432/bikeflow"
+)

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Citi Bike station risk analyzer: trip-flow analysis and near real-time empty/full risk forecast"
 requires-python = ">=3.11,<3.13"
 dependencies = [
+    "fastapi>=0.143.0",
     "fsspec>=2026.9.0",
     "pandas>=3.0.6",
     "psycopg[binary]>=3.3.6",
@@ -11,10 +12,12 @@ dependencies = [
     "pydantic>=2.14.1",
     "requests>=2.34.2",
     "sqlalchemy>=2.1.4",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.13.1",
     "pytest>=8",
 ]
 

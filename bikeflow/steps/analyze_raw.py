@@ -15,4 +15,5 @@ class AnalyzeRawService:
 
     def analyze_raw(self, step_input: AnalyzeRawInput) -> None:
         """Run the step. The output contract is not defined yet (TBD)."""
+        print("Hello wrld!")
         raise NotImplementedError("ANALYZE_RAW contract is not defined yet")

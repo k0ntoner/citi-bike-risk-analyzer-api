@@ -26,4 +26,6 @@ jobs:
       # versions from uv.lock; fails if uv.lock is out of date with pyproject.toml.
       - run: uv sync --locked
 
-      - run: uv run pytest
+      # Database tests start PostgreSQL in Docker (available on ubuntu-latest);
+      # with CI=true they fail instead of being skipped when Docker is missing.
+      - run: uv run pytest --cov=bikeflow --cov-report=term-missing

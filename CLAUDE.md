@@ -13,7 +13,12 @@ bikes now + predicted arrivals − predicted departures.
 uv sync              # install dependencies
 uv run pytest        # run tests
 uv add <package>     # add a dependency (never pip install, never edit pyproject by hand)
+uv run uvicorn bikeflow.api.app:app --reload   # run the API; Swagger UI at /docs
 ```
+
+The API needs PostgreSQL at `BIKEFLOW_DATABASE_URL` (default
+`postgresql+psycopg://postgres@localhost:5432/bikeflow`). Pending
+migrations are applied with yoyo when the app starts (`BIKEFLOW_MIGRATE_ON_STARTUP`).
 
 ## Data
 

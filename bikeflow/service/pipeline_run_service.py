@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from bikeflow.service.dto import PipelineRunDto
 from bikeflow.service.mapper import apply_run, run_to_dto
-from bikeflow.storage.models import PipelineRun
+from bikeflow.storage.models import PipelineRun, PipelineStep, StepType, Trigger
 from bikeflow.storage.repositories import PipelineRunRepository
 
 
@@ -32,23 +32,45 @@ class PipelineRunService:
             run = PipelineRunRepository(session).find_by_id(run_id)
             return run_to_dto(run) if run else None
 
-    def save(self, dto: PipelineRunDto) -> PipelineRunDto:
-        """Create the run if ``dto.id`` is None, otherwise update it.
+    def create(self, trigger: Trigger, window_months: int) -> PipelineRunDto:
+        """Create a new run with one PENDING step of every type and save it.
 
-        Returns the saved state with database-generated values (ids,
-        timestamps, defaults) filled in.
+        The status, timestamps and ids are set by the database.
 
-        Raises:
-            RunNotFoundError: ``dto.id`` is set but no such run exists.
+        Args:
+            trigger: Who starts the run.
+            window_months: Requested length of the trip data window, in months.
+
+        Returns:
+            The saved run with its steps in execution order.
         """
         with self._session_factory.begin() as session:
+            run = PipelineRun(
+                trigger=trigger,
+                window_months=window_months,
+                steps=[PipelineStep(step_type=step_type) for step_type in StepType],
+            )
+            PipelineRunRepository(session).save(run)
+            return run_to_dto(run)
+
+    def update(self, dto: PipelineRunDto) -> PipelineRunDto:
+        """Save the changes of an existing run and its steps.
+
+        Returns:
+            The saved state with database-generated values (``updated_at``,
+            ids of new steps) filled in.
+
+        Raises:
+            ValueError: ``dto.id`` is None, i.e. the run was never created.
+            RunNotFoundError: No run with ``dto.id`` exists.
+        """
+        if dto.id is None:
+            raise ValueError("Cannot update a run without id; use create() for a new run")
+        with self._session_factory.begin() as session:
             repository = PipelineRunRepository(session)
-            if dto.id is None:
-                run = PipelineRun(steps=[])
-            else:
-                run = repository.find_by_id(dto.id)
-                if run is None:
-                    raise RunNotFoundError(dto.id)
+            run = repository.find_by_id(dto.id)
+            if run is None:
+                raise RunNotFoundError(dto.id)
             apply_run(dto, run)
             repository.save(run)
             return run_to_dto(run)

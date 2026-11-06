@@ -1,4 +1,5 @@
 import io
+import zipfile
 
 import pandas as pd
 import pytest
@@ -27,7 +28,7 @@ def test_read_csv_matches_schema():
 def test_validate_reports_all_problems():
     df = read().drop(columns=[RawTrip.MEMBER_CASUAL]).assign(extra=1)
     df[RawTrip.STARTED_AT] = df[RawTrip.STARTED_AT].astype(str)
-    df.loc[0, RawTrip.START_STATION_ID] = None
+    df.loc[0, RawTrip.RIDE_ID] = None
 
     with pytest.raises(SchemaError) as error:
         validate(df)
@@ -36,7 +37,7 @@ def test_validate_reports_all_problems():
     assert "missing columns: ['member_casual']" in problems
     assert "unexpected columns: ['extra']" in problems
     assert "started_at: expected naive datetime" in problems
-    assert "start_station_id: 1 missing values" in problems
+    assert "ride_id: 1 missing values" in problems
 
 
 def test_validate_rejects_timezone_aware_datetimes():
@@ -44,3 +45,18 @@ def test_validate_rejects_timezone_aware_datetimes():
     df[RawTrip.ENDED_AT] = df[RawTrip.ENDED_AT].dt.tz_localize("America/New_York")
     with pytest.raises(SchemaError, match="ended_at"):
         validate(df)
+
+
+def test_read_zip_skips_macos_metadata_and_joins_csv_files():
+    rows = CSV.splitlines()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("JC-202609-citibike-tripdata_1.csv", "\n".join(rows[:2]) + "\n")
+        archive.writestr("JC-202609-citibike-tripdata_2.csv", "\n".join([rows[0], rows[2]]) + "\n")
+        archive.writestr("__MACOSX/._JC-202609-citibike-tripdata_1.csv", b"\x00\x05\x16\x07 binary")
+    buffer.seek(0)
+
+    df = read_raw_trips_csv(buffer)
+
+    assert len(df) == 2
+    assert tuple(df.columns) == COLUMN_NAMES

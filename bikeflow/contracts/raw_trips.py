@@ -14,10 +14,13 @@ Use the column constants instead of string literals::
 See ``docs/data-notes.md`` for what is known about the values.
 """
 
+import io
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from os import PathLike
+from pathlib import PurePosixPath
 from typing import IO
 
 import pandas as pd
@@ -80,12 +83,12 @@ COLUMNS: tuple[Column, ...] = (
     Column(RawTrip.RIDEABLE_TYPE, Kind.STRING, False, "Bike type: classic_bike or electric_bike."),
     Column(RawTrip.STARTED_AT, Kind.DATETIME, False, "Rental start, local New York time without zone."),
     Column(RawTrip.ENDED_AT, Kind.DATETIME, False, "Return time, local New York time without zone."),
-    Column(RawTrip.START_STATION_NAME, Kind.STRING, False, "Start station name."),
-    Column(RawTrip.START_STATION_ID, Kind.STRING, False, "Start station id; matches GBFS short_name."),
+    Column(RawTrip.START_STATION_NAME, Kind.STRING, True, "Start station name; missing if not taken from a dock."),
+    Column(RawTrip.START_STATION_ID, Kind.STRING, True, "Start station id; matches GBFS short_name; missing if not taken from a dock."),
     Column(RawTrip.END_STATION_NAME, Kind.STRING, True, "End station name; missing if not returned to a dock."),
     Column(RawTrip.END_STATION_ID, Kind.STRING, True, "End station id; missing if not returned to a dock."),
-    Column(RawTrip.START_LAT, Kind.FLOAT, False, "Start latitude."),
-    Column(RawTrip.START_LNG, Kind.FLOAT, False, "Start longitude."),
+    Column(RawTrip.START_LAT, Kind.FLOAT, True, "Start latitude; missing if the start is unknown."),
+    Column(RawTrip.START_LNG, Kind.FLOAT, True, "Start longitude; missing if the start is unknown."),
     Column(RawTrip.END_LAT, Kind.FLOAT, True, "End latitude; missing if the end is unknown."),
     Column(RawTrip.END_LNG, Kind.FLOAT, True, "End longitude; missing if the end is unknown."),
     Column(RawTrip.MEMBER_CASUAL, Kind.STRING, False, "Rider type: member or casual."),
@@ -138,14 +141,51 @@ def validate(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def read_raw_trips_csv(source: str | PathLike | IO) -> pd.DataFrame:
-    """Read a Citi Bike trip CSV (plain or zipped) into the schema and validate it.
+    """Read a Citi Bike trip CSV, plain or zipped, into the schema and validate it.
 
+    A zip archive may contain several CSV files (they are concatenated) and
+    macOS metadata entries (``__MACOSX/``, ``._*``), which are skipped.
     Station ids are read as strings explicitly: ids like ``5114.08`` would
     otherwise become floats.
+
+    Raises:
+        ValueError: A zip archive contains no CSV file.
+        SchemaError: The data does not match the schema.
     """
+    if _is_zip(source):
+        with zipfile.ZipFile(source) as archive:
+            members = [name for name in archive.namelist() if _is_trip_csv(name)]
+            if not members:
+                raise ValueError(f"No CSV file in the archive: {archive.namelist()}")
+            frames = []
+            for name in members:
+                with archive.open(name) as f:
+                    frames.append(_read_csv(f))
+        df = pd.concat(frames, ignore_index=True)
+    else:
+        df = _read_csv(source)
+    return validate(df)
+
+
+def _read_csv(source: str | PathLike | IO) -> pd.DataFrame:
     datetime_columns = [c.name for c in COLUMNS if c.kind == Kind.DATETIME]
     dtypes = {c.name: "str" if c.kind == Kind.STRING else "float64" for c in COLUMNS if c.kind != Kind.DATETIME}
     df = pd.read_csv(source, usecols=list(COLUMN_NAMES), dtype=dtypes)
     for name in datetime_columns:
         df[name] = pd.to_datetime(df[name], format="%Y-%m-%d %H:%M:%S.%f")
-    return validate(df[list(COLUMN_NAMES)])
+    return df[list(COLUMN_NAMES)]
+
+
+def _is_zip(source: str | PathLike | IO) -> bool:
+    if isinstance(source, io.TextIOBase):
+        return False
+    return zipfile.is_zipfile(source)
+
+
+def _is_trip_csv(name: str) -> bool:
+    path = PurePosixPath(name)
+    return (
+        path.suffix.lower() == ".csv"
+        and "__MACOSX" not in path.parts
+        and not path.name.startswith("._")
+    )

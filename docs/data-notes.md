@@ -63,6 +63,26 @@ with types, nullability and descriptions). Load a local file with
   system trips. Weather explains a large part of the rest: daytime hours with rain
   above 0.5 mm have 0.49× the typical trips; the 51 mm day (2026-09-27) had 0.2×.
 
+### 2025-10 … 2026-09 (12 months, 972 092 trips)
+
+**Source files**
+
+- File names are not uniform: most months are `JC-YYYYMM-citibike-tripdata.csv.zip`,
+  but 2025-10, 2026-01 and 2026-04 are `JC-YYYYMM-citibike-tripdata.zip` (no `.csv`).
+  `TRIPDATA_FILE_REGEX` accepts both.
+- Archives contain the CSV plus a macOS metadata entry
+  (`__MACOSX/._JC-...csv`) in most months; `read_raw_trips_csv` skips it.
+
+**Trips**
+
+- The start station can be missing too, not only the end: 2 e-bike trips on
+  2026-08-21 and 1 in 2025-08 have no start station and no start coordinates
+  (most likely taken outside a dock). The raw schema allows it.
+
+**Demand**
+
+- Strong seasonality: 25 809 trips in 2026-02 vs 111 227 in 2026-08 (4.3×).
+
 ## Open questions
 
 - Do inactive or new stations appear when looking at several months?

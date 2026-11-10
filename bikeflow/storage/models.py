@@ -40,13 +40,26 @@ class Trigger(StrEnum):
 
 
 class StepType(StrEnum):
-    """Pipeline steps, in execution order."""
+    """Pipeline steps.
 
-    INGEST = "INGEST"
-    ANALYZE_RAW = "ANALYZE_RAW"
-    PROCESS = "PROCESS"
-    ANALYZE_FEATURES = "ANALYZE_FEATURES"
-    TRAIN = "TRAIN"
+    Each member carries its position in the pipeline as ``order`` (1 = first).
+    The order is a property of the step type and is not stored in the database;
+    sort steps by it instead of relying on the order they are loaded in.
+    """
+
+    order: int
+
+    def __new__(cls, value: str, order: int) -> "StepType":
+        member = str.__new__(cls, value)
+        member._value_ = value
+        member.order = order
+        return member
+
+    INGEST = "INGEST", 1
+    ANALYZE_RAW = "ANALYZE_RAW", 2
+    PROCESS = "PROCESS", 3
+    ANALYZE_FEATURES = "ANALYZE_FEATURES", 4
+    TRAIN = "TRAIN", 5
 
 
 class StepStatus(StrEnum):

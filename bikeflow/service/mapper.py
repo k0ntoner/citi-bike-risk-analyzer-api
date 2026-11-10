@@ -42,7 +42,7 @@ def step_to_dto(step: PipelineStep) -> AnyStepDto:
 
 
 def run_to_dto(run: PipelineRun) -> PipelineRunDto:
-    """Build the run DTO; ``run.steps`` must be loaded."""
+    """Build the run DTO with steps in pipeline order; ``run.steps`` must be loaded."""
     return PipelineRunDto(
         id=run.id,
         status=run.status,
@@ -52,7 +52,7 @@ def run_to_dto(run: PipelineRun) -> PipelineRunDto:
         updated_at=run.updated_at,
         started_at=run.started_at,
         completed_at=run.completed_at,
-        steps=[step_to_dto(step) for step in run.steps],
+        steps=sorted((step_to_dto(step) for step in run.steps), key=lambda s: s.order),
     )
 
 

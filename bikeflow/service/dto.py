@@ -41,6 +41,36 @@ class StepDto(_Dto):
     completed_at: datetime | None = None
     error_message: str | None = None
 
+    @property
+    def order(self) -> int:
+        """Position of the step in the pipeline (1 = first), taken from ``step_type``.
+
+        Not a field: it is not serialized and never stored in ``step_data``.
+        """
+        return self.step_type.order
+
+
+class IngestedFileDto(_Dto):
+    """One trip file downloaded by the INGEST step of a run.
+
+    Attributes:
+        key: Path of the stored file relative to the data root, e.g.
+            ``runs/2026-10-18_15-30-00Z_run-42/steps/ingest/JC-202609-citibike-tripdata.csv.zip``.
+            Later steps read the file by this key.
+        month: Month of the trips, as its first day.
+        source_url: URL the file was downloaded from.
+        etag: ETag of the source file at download time (content version).
+        size: Size of the file in bytes.
+        downloaded_at: When the download finished.
+    """
+
+    key: str
+    month: date
+    source_url: str
+    etag: str
+    size: int
+    downloaded_at: datetime
+
 
 class IngestStepDto(StepDto):
     """Download of the monthly trip datasets.
@@ -48,11 +78,13 @@ class IngestStepDto(StepDto):
     Attributes:
         period_start: First day of the earliest downloaded month.
         period_end: Last day of the latest downloaded month.
+        files: Downloaded files, oldest month first; empty until the step completes.
     """
 
     step_type: Literal[StepType.INGEST] = StepType.INGEST
     period_start: date | None = None
     period_end: date | None = None
+    files: tuple[IngestedFileDto, ...] = ()
 
 
 class AnalyzeRawStepDto(StepDto):

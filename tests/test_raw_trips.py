@@ -27,7 +27,7 @@ def test_read_csv_matches_schema():
 def test_validate_reports_all_problems():
     df = read().drop(columns=[RawTrip.MEMBER_CASUAL]).assign(extra=1)
     df[RawTrip.STARTED_AT] = df[RawTrip.STARTED_AT].astype(str)
-    df.loc[0, RawTrip.START_STATION_ID] = None
+    df.loc[0, RawTrip.RIDE_ID] = None
 
     with pytest.raises(SchemaError) as error:
         validate(df)
@@ -36,7 +36,7 @@ def test_validate_reports_all_problems():
     assert "missing columns: ['member_casual']" in problems
     assert "unexpected columns: ['extra']" in problems
     assert "started_at: expected naive datetime" in problems
-    assert "start_station_id: 1 missing values" in problems
+    assert "ride_id: 1 missing values" in problems
 
 
 def test_validate_rejects_timezone_aware_datetimes():

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from bikeflow.api.app import create_app
 from bikeflow.api.runs import get_pipeline, get_run_service
-from bikeflow.service.dto import PipelineRunDto
+from bikeflow.service.dto import PipelineRunDto, StationActivityDto
 from bikeflow.service.mapper import _STEP_DTO_BY_TYPE
 from bikeflow.storage.models import RunStatus, StepType, Trigger
 
@@ -29,6 +29,9 @@ class FakePipeline:
 
     def execute(self, run):
         self.executed.append(run.id)
+
+    def station_activity(self, run):
+        return self.stations
 
 
 class FakeRunService:
@@ -75,3 +78,21 @@ def test_get_missing_run_is_404(client):
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Pipeline run 999 not found"}
+
+
+def test_get_station_activity(client, pipeline):
+    pipeline.stations = [StationActivityDto(
+        station_id="JC115", station_name="Hamilton Park", departures=40, arrivals=38, in_network=True,
+    )]
+    response = client.get("/runs/7/analyze-raw/stations")
+
+    assert response.status_code == 200
+    assert response.json() == [{
+        "station_id": "JC115", "station_name": "Hamilton Park", "departures": 40, "arrivals": 38, "in_network": True,
+    }]
+
+
+def test_station_activity_before_analyze_raw_is_404(client, pipeline):
+    pipeline.stations = None
+    assert client.get("/runs/7/analyze-raw/stations").status_code == 404
+    assert client.get("/runs/999/analyze-raw/stations").status_code == 404

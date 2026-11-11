@@ -28,6 +28,10 @@ def test_ingest_input_validation(tmp_path):
         IngestInput(0, config.TRIPDATA_FILE_REGEX, store)
     with pytest.raises(ValueError, match="month"):
         IngestInput(12, r"^JC-(\d{6})\.zip$", store)
+    with pytest.raises(ValueError, match="inflow_file_regex"):
+        IngestInput(12, config.TRIPDATA_FILE_REGEX, store, r"^(\d{6})\.zip$", ("JC",))
+    with pytest.raises(ValueError, match="network_station_prefixes"):
+        IngestInput(12, config.TRIPDATA_FILE_REGEX, store, config.INFLOW_FILE_REGEX)
 
 
 def test_ingest_result_cannot_be_empty():

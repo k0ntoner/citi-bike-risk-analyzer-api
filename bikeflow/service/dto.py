@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from bikeflow.contracts.analyze_raw import DataQuality, Distributions, GeneralStatistics, TripAnomalies
 from bikeflow.storage.models import RunStatus, StepStatus, StepType, Trigger
 
 
@@ -60,8 +61,13 @@ class IngestedFileDto(_Dto):
         month: Month of the trips, as its first day.
         source_url: URL the file was downloaded from.
         etag: ETag of the source file at download time (content version).
-        size: Size of the file in bytes.
+        size: Size of the stored file in bytes.
         downloaded_at: When the download finished.
+        scanned_trips: For a file extracted from the New York City file: how
+            many trips that file had. None for a file stored as is.
+        kept_trips: For an extracted file: how many trips end in our network
+            and were stored. None for a file stored as is.
+        cached: Taken from the INGEST cache, not downloaded in this run.
     """
 
     key: str
@@ -70,6 +76,9 @@ class IngestedFileDto(_Dto):
     etag: str
     size: int
     downloaded_at: datetime
+    scanned_trips: int | None = None
+    kept_trips: int | None = None
+    cached: bool = False
 
 
 class IngestStepDto(StepDto):
@@ -88,9 +97,49 @@ class IngestStepDto(StepDto):
 
 
 class AnalyzeRawStepDto(StepDto):
-    """Statistics of the raw trip dataset for the UI: anomalies, stations, distributions."""
+    """Statistics of the raw trip dataset for the UI: anomalies, stations, distributions.
+
+    The groups are the ones of ``AnalyzeRawResult``; all are None until the
+    step completes. The per-station table is large, so it is stored as a file
+    and only its key is kept here.
+
+    Attributes:
+        general_statistics: Trips, period and stations of the dataset;
+            ``period_start`` and ``period_end`` are timezone-aware UTC.
+        data_quality: Missing values, duplicates, invalid records.
+        trip_anomalies: Long rides, short round trips, wrong durations.
+        distributions: Trips by bike type, rider type, hour, weekday, month.
+        total_stations: Station ids found in the trips, ours and outside the network.
+        stations_key: Path of the station table (CSV) relative to the data
+            root; served by ``GET /runs/{id}/analyze-raw/stations``.
+    """
 
     step_type: Literal[StepType.ANALYZE_RAW] = StepType.ANALYZE_RAW
+    general_statistics: GeneralStatistics | None = None
+    data_quality: DataQuality | None = None
+    trip_anomalies: TripAnomalies | None = None
+    distributions: Distributions | None = None
+    total_stations: int | None = None
+    stations_key: str | None = None
+
+
+class StationActivityDto(_Dto):
+    """One row of the station table of ANALYZE_RAW, as served to the UI.
+
+    Attributes:
+        station_id: Station id as in the trips.
+        station_name: First name found for the id.
+        departures: Trips that started at the station.
+        arrivals: Trips that ended at the station.
+        in_network: Whether the station is ours (Jersey City / Hoboken), not a
+            New York station that only appears as a trip end or start.
+    """
+
+    station_id: str
+    station_name: str | None
+    departures: int
+    arrivals: int
+    in_network: bool
 
 
 class ProcessStepDto(StepDto):

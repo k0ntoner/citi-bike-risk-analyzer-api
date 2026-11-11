@@ -60,3 +60,8 @@ def test_read_zip_skips_macos_metadata_and_joins_csv_files():
 
     assert len(df) == 2
     assert tuple(df.columns) == COLUMN_NAMES
+
+
+def test_read_plain_csv_from_binary_stream():
+    # Zip detection seeks to the end of the stream; reading must start from the beginning.
+    assert len(read_raw_trips_csv(io.BytesIO(CSV.encode()))) == 2

@@ -14,6 +14,18 @@ TRIPDATA_FILE_REGEX = os.environ.get(
     "BIKEFLOW_TRIPDATA_FILE_REGEX", r"^JC-(?P<month>\d{6})-citibike-tripdata(\.csv)?\.zip$"
 )
 
+# Monthly trip file of New York City, e.g. 202609-citibike-tripdata.zip (~1 GB). Trips from
+# New York into our network are published only there; INGEST keeps just those trips.
+# An empty value turns it off. Older years are yearly files (2023-...) and do not match.
+INFLOW_FILE_REGEX = os.environ.get(
+    "BIKEFLOW_INFLOW_FILE_REGEX", r"^(?P<month>\d{6})-citibike-tripdata(\.csv)?\.zip$"
+) or None
+
+# Station id prefixes of our network: Jersey City and Hoboken (comma-separated).
+NETWORK_STATION_PREFIXES = tuple(
+    p.strip() for p in os.environ.get("BIKEFLOW_NETWORK_STATION_PREFIXES", "JC,HB").split(",") if p.strip()
+)
+
 # Rolling window: how many latest published months of trips we use.
 # It moves forward by itself when a new monthly file appears.
 TRIPDATA_WINDOW_MONTHS = int(os.environ.get("BIKEFLOW_TRIPDATA_WINDOW_MONTHS", "12"))

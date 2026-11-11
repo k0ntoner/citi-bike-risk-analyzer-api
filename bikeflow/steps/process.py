@@ -13,7 +13,8 @@ class ProcessService:
     features (time, station, weather). Returns the dataset with a manifest of
     its feature and target columns.
     """
-
+    
     def process(self, step_input: ProcessInput) -> None:
         """Run the step. The output contract is not defined yet (TBD)."""
+        print("Hello World!")
         raise NotImplementedError("PROCESS contract is not defined yet")

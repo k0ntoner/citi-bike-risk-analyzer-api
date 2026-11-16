@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 
 from bikeflow.service.bikeflow_pipeline_service import BikeFlowPipelineService
-from bikeflow.service.dto import PipelineRunDto
+from bikeflow.service.dto import PipelineRunDto, StationActivityDto
 from bikeflow.service.pipeline_run_service import PipelineRunService
 from bikeflow.storage.models import Trigger
 
@@ -46,6 +46,36 @@ def get_run(
     run_service: Annotated[PipelineRunService, Depends(get_run_service)],
 ) -> PipelineRunDto:
     """A run with all its steps and their results.
+
+    Raises:
+        HTTPException: 404 if the run does not exist.
+    """
+    return _find_run(run_id, run_service)
+
+
+@router.get("/{run_id}/analyze-raw/stations", response_model=list[StationActivityDto])
+def get_station_activity(
+    run_id: int,
+    run_service: Annotated[PipelineRunService, Depends(get_run_service)],
+    pipeline: Annotated[BikeFlowPipelineService, Depends(get_pipeline)],
+) -> list[StationActivityDto]:
+    """Departures and arrivals of every station found in the raw trips of a run.
+
+    ``in_network`` separates our stations (Jersey City / Hoboken) from New York
+    stations that appear only because a trip crossed the river.
+
+    Raises:
+        HTTPException: 404 if the run does not exist or its ANALYZE_RAW step
+            has not completed.
+    """
+    stations = pipeline.station_activity(_find_run(run_id, run_service))
+    if stations is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"ANALYZE_RAW of run {run_id} has not completed")
+    return stations
+
+
+def _find_run(run_id: int, run_service: PipelineRunService) -> PipelineRunDto:
+    """The run with this id.
 
     Raises:
         HTTPException: 404 if the run does not exist.

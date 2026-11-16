@@ -79,7 +79,7 @@ class Column:
 
 
 COLUMNS: tuple[Column, ...] = (
-    Column(RawTrip.RIDE_ID, Kind.STRING, False, "Unique trip id, 16 hex chars."),
+    Column(RawTrip.RIDE_ID, Kind.STRING, False, "Trip id: 16 hex chars up to 2026-09, a decimal number since 2026-10; opaque."),
     Column(RawTrip.RIDEABLE_TYPE, Kind.STRING, False, "Bike type: classic_bike or electric_bike."),
     Column(RawTrip.STARTED_AT, Kind.DATETIME, False, "Rental start, local New York time without zone."),
     Column(RawTrip.ENDED_AT, Kind.DATETIME, False, "Return time, local New York time without zone."),
@@ -154,7 +154,7 @@ def read_raw_trips_csv(source: str | PathLike | IO) -> pd.DataFrame:
     """
     if _is_zip(source):
         with zipfile.ZipFile(source) as archive:
-            members = [name for name in archive.namelist() if _is_trip_csv(name)]
+            members = [name for name in archive.namelist() if is_trip_csv(name)]
             if not members:
                 raise ValueError(f"No CSV file in the archive: {archive.namelist()}")
             frames = []
@@ -179,10 +179,18 @@ def _read_csv(source: str | PathLike | IO) -> pd.DataFrame:
 def _is_zip(source: str | PathLike | IO) -> bool:
     if isinstance(source, io.TextIOBase):
         return False
-    return zipfile.is_zipfile(source)
+    if isinstance(source, (str, PathLike)):
+        return zipfile.is_zipfile(source)
+    # is_zipfile seeks to the end of a stream; put it back so a plain CSV can be read.
+    position = source.tell()
+    try:
+        return zipfile.is_zipfile(source)
+    finally:
+        source.seek(position)
 
 
-def _is_trip_csv(name: str) -> bool:
+def is_trip_csv(name: str) -> bool:
+    """Whether a zip archive entry is a trip CSV, not a macOS metadata entry."""
     path = PurePosixPath(name)
     return (
         path.suffix.lower() == ".csv"

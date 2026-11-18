@@ -25,13 +25,13 @@ def jc_zip():
     return buffer.getvalue()
 
 
-def run_pipeline(tmp_path):
+def run_pipeline(tmp_path, process_service=None, weather_source=None):
     fake = source(["202609"], ["202609"])
     fake.contents[jc("202609")] = jc_zip()
     runs = FakeRuns()
     pipeline = BikeFlowPipelineService(
-        runs, IngestService(fake), AnalyzeRawService(), None, None, None,
-        data_root=tmp_path, inflow_file_regex=config.INFLOW_FILE_REGEX,
+        runs, IngestService(fake), AnalyzeRawService(), process_service, None, None,
+        data_root=tmp_path, inflow_file_regex=config.INFLOW_FILE_REGEX, weather_source=weather_source,
     )
     return pipeline, pipeline.run(Trigger.MANUAL), runs
 

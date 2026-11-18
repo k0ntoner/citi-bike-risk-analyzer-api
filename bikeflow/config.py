@@ -30,6 +30,10 @@ NETWORK_STATION_PREFIXES = tuple(
 # It moves forward by itself when a new monthly file appears.
 TRIPDATA_WINDOW_MONTHS = int(os.environ.get("BIKEFLOW_TRIPDATA_WINDOW_MONTHS", "12"))
 
+# PROCESS drops this many hours at the end of the window: a trip that starts
+# there may end in the next, not yet published month, so its departure is unknown.
+PROCESS_DEPARTURE_BUFFER_HOURS = int(os.environ.get("BIKEFLOW_PROCESS_DEPARTURE_BUFFER_HOURS", "48"))
+
 # Folder with all local files of the pipeline (git-ignored); runs live in {DATA_ROOT}/runs/.
 DATA_ROOT = os.environ.get("BIKEFLOW_DATA_ROOT", "data")
 

@@ -16,6 +16,11 @@ from bikeflow import config
 from bikeflow.api import health, runs
 from bikeflow.service.bikeflow_pipeline_service import BikeFlowPipelineService
 from bikeflow.service.pipeline_run_service import PipelineRunService
+from bikeflow.service.weather_source import (
+    REGIONAL_WEATHER_LATITUDE,
+    REGIONAL_WEATHER_LONGITUDE,
+    OpenMeteoArchiveSource,
+)
 from bikeflow.steps.analyze_features import AnalyzeFeaturesService
 from bikeflow.steps.analyze_raw import AnalyzeRawService
 from bikeflow.steps.ingest.source import S3HttpTripDataSource
@@ -50,6 +55,7 @@ def create_app(
         ProcessService(),
         AnalyzeFeaturesService(),
         TrainService(),
+        weather_source=OpenMeteoArchiveSource(REGIONAL_WEATHER_LATITUDE, REGIONAL_WEATHER_LONGITUDE),
     )
 
     @asynccontextmanager

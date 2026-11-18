@@ -143,9 +143,48 @@ class StationActivityDto(_Dto):
 
 
 class ProcessStepDto(StepDto):
-    """Cleaning and aggregation into the training dataset."""
+    """Cleaning and aggregation into the training dataset.
+
+    The dataset itself (station × hour, ~1 million rows) is stored as a Parquet
+    file; here are its key and a summary. All fields are None until the step
+    completes.
+
+    Attributes:
+        dataset_key: Path of the dataset (Parquet) relative to the data root.
+        rows: Station-hour rows in the dataset.
+        stations: Stations in the dataset (ours only, no New York ids).
+        period_start: First hour of the dataset, timezone-aware UTC.
+        period_end: Last hour of the dataset, timezone-aware UTC.
+        feature_columns: Model inputs, as ``ProcessResult.feature_columns``.
+        target_columns: What the model predicts: departures and arrivals.
+        dropped_rows: Removed trip rows by reason (duplicates, DST, ...).
+        weather_excluded_station_hours: Rows removed for missing weather.
+        loaded_months: Months of the INGEST files the dataset is built from.
+        departure_buffer_hours: Hours cut off at the end of the window.
+        weather_latitude: Latitude of the weather point used for all stations.
+        weather_longitude: Longitude of the weather point.
+        station_activity_assumption: How PROCESS decides when a station existed.
+        coverage_policy: How PROCESS limits the hours it trusts.
+        holiday_calendar: Which holidays ``is_holiday`` marks.
+    """
 
     step_type: Literal[StepType.PROCESS] = StepType.PROCESS
+    dataset_key: str | None = None
+    rows: int | None = None
+    stations: int | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    feature_columns: tuple[str, ...] | None = None
+    target_columns: tuple[str, ...] | None = None
+    dropped_rows: dict[str, int] | None = None
+    weather_excluded_station_hours: int | None = None
+    loaded_months: tuple[date, ...] | None = None
+    departure_buffer_hours: int | None = None
+    weather_latitude: float | None = None
+    weather_longitude: float | None = None
+    station_activity_assumption: str | None = None
+    coverage_policy: str | None = None
+    holiday_calendar: str | None = None
 
 
 class AnalyzeFeaturesStepDto(StepDto):

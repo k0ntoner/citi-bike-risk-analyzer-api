@@ -84,7 +84,8 @@ class IngestService:
         for number, month in enumerate(selected, start=1):
             files.append(self._download(month.month, month.network, step_input))
             log.info(
-                "Downloaded %d/%d: %s (%.1f MB)",
+                "%s %d/%d: %s (%.1f MB)",
+                "From the cache" if files[-1].cached else "Downloaded",
                 number, len(selected), month.network.name, month.network.size / 2**20,
             )
             if month.inflow is not None:

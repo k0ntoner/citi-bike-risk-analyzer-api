@@ -3,7 +3,7 @@
 import dataclasses
 import logging
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -12,6 +12,7 @@ import pandas as pd
 from bikeflow import config
 from bikeflow.contracts.analyze_raw import AnalyzeRawInput
 from bikeflow.contracts.ingest import IngestInput
+from bikeflow.contracts.process import ProcessInput
 from bikeflow.contracts.raw_trips import read_raw_trips_csv
 from bikeflow.service.dto import (
     AnalyzeRawStepDto,
@@ -21,6 +22,7 @@ from bikeflow.service.dto import (
     StationActivityDto,
 )
 from bikeflow.service.pipeline_run_service import PipelineRunService
+from bikeflow.service.weather_source import OpenMeteoArchiveSource
 from bikeflow.steps.analyze_features import AnalyzeFeaturesService
 from bikeflow.steps.analyze_raw import AnalyzeRawService
 from bikeflow.steps.ingest_service import IngestService
@@ -35,6 +37,7 @@ log = logging.getLogger(__name__)
 # Trip timestamps are New York local time without a zone.
 _TRIP_TIMEZONE = ZoneInfo("America/New_York")
 _STATIONS_FILE = "stations.csv"
+_DATASET_FILE = "dataset.parquet"
 
 
 def _now() -> datetime:
@@ -49,6 +52,13 @@ def _trip_time_to_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     return value.replace(tzinfo=_TRIP_TIMEZONE).astimezone(timezone.utc)
+
+
+def _months_to_utc(months: tuple[date, ...]) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """UTC bounds [start, end) of whole New York local months, from the first to the last."""
+    start = pd.Timestamp(months[0]).tz_localize(_TRIP_TIMEZONE)
+    end = (pd.Timestamp(months[-1]) + pd.DateOffset(months=1)).tz_localize(_TRIP_TIMEZONE)
+    return start.tz_convert("UTC"), end.tz_convert("UTC")
 
 
 class BikeFlowPipelineService:
@@ -75,10 +85,13 @@ class BikeFlowPipelineService:
         train_service: TrainService,
         data_root: str | Path = config.DATA_ROOT,
         inflow_file_regex: str | None = config.INFLOW_FILE_REGEX,
+        weather_source: OpenMeteoArchiveSource | None = None,
     ) -> None:
         self._pipeline_service = pipeline_service
         self._data_root = Path(data_root)
         self._inflow_file_regex = inflow_file_regex
+        # Hourly weather for PROCESS; a fake in tests. Required only by PROCESS.
+        self._weather_source = weather_source
         self._ingest_service = ingest_service
         self._analyze_raw_service = analyze_raw_service
         self._process_service = process_service
@@ -94,7 +107,7 @@ class BikeFlowPipelineService:
         self._handlers: dict[StepType, Callable[[PipelineRunDto], PipelineRunDto]] = {
             StepType.INGEST: self._handle_ingest_step,
             StepType.ANALYZE_RAW: self._handle_analyze_raw_step,
-            StepType.PROCESS: self._handle_not_wired_step,
+            StepType.PROCESS: self._handle_process_step,
             StepType.ANALYZE_FEATURES: self._handle_not_wired_step,
             StepType.TRAIN: self._handle_not_wired_step,
         }
@@ -286,6 +299,62 @@ class BikeFlowPipelineService:
             self._raw_trips[run.id] = pd.concat(frames, ignore_index=True)
             log.info("Run %s: read %d raw trips from %d files", run.id, len(self._raw_trips[run.id]), len(frames))
         return self._raw_trips[run.id]
+
+    def _handle_process_step(self, run: PipelineRunDto) -> PipelineRunDto:
+        """PROCESS: build the training dataset from the raw trips and weather.
+
+        Gets the same raw trips as ANALYZE_RAW, the months of the INGEST files
+        and the hourly weather of those months. The dataset is a table, so it
+        goes to ``{data_root}/runs/<run>/steps/process/dataset.parquet``; only
+        its key and a summary are stored. The raw trips are released after
+        this step: no later step needs them.
+        """
+        if self._weather_source is None:
+            raise RuntimeError("PROCESS needs a weather source")
+        ingest = next(s for s in run.steps if isinstance(s, IngestStepDto))
+        # Two files a month with the inflow, so the months repeat.
+        loaded_months = tuple(sorted({file.month for file in ingest.files}))
+        start, end = _months_to_utc(loaded_months)
+        weather = self._weather_source.fetch(start, end)
+        log.info("Run %s: fetched %d weather hours, %s .. %s", run.id, len(weather), start, end)
+
+        result = self._process_service.process(ProcessInput(
+            trips=self._load_raw_trips(run),
+            loaded_months=loaded_months,
+            weather=weather,
+            departure_buffer_hours=config.PROCESS_DEPARTURE_BUFFER_HOURS,
+        ))
+        self._raw_trips.pop(run.id, None)
+
+        folder = step_dir(run_dir(run.id, run.created_at), StepType.PROCESS)
+        dataset = result.dataset
+        with LocalDatasetStore(self._data_root / folder).open_write(_DATASET_FILE) as f:
+            dataset.to_parquet(f, index=False)
+
+        times = dataset["timestamp"]
+        log.info(
+            "Run %s: processed %d station-hours of %d stations, dropped trips %s",
+            run.id, len(dataset), dataset["station_id"].nunique(), result.dropped_rows,
+        )
+        return self._with_step(
+            run, StepType.PROCESS,
+            dataset_key=f"{folder}/{_DATASET_FILE}",
+            rows=len(dataset),
+            stations=int(dataset["station_id"].nunique()),
+            period_start=None if dataset.empty else times.min().to_pydatetime(),
+            period_end=None if dataset.empty else times.max().to_pydatetime(),
+            feature_columns=result.feature_columns,
+            target_columns=result.target_columns,
+            dropped_rows=result.dropped_rows,
+            weather_excluded_station_hours=result.weather_excluded_station_hours,
+            loaded_months=result.loaded_months,
+            departure_buffer_hours=result.departure_buffer_hours,
+            weather_latitude=self._weather_source.latitude,
+            weather_longitude=self._weather_source.longitude,
+            station_activity_assumption=result.station_activity_assumption,
+            coverage_policy=result.coverage_policy,
+            holiday_calendar=result.holiday_calendar,
+        )
 
     def _handle_not_wired_step(self, run: PipelineRunDto) -> PipelineRunDto:
         """Placeholder for steps whose input from earlier steps is not wired yet."""

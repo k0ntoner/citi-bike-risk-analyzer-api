@@ -1,0 +1,232 @@
+"""DTOs of the service layer.
+
+Everything outside ``bikeflow.storage`` (orchestrator, API) works with these
+classes instead of the ORM entities. They are immutable: to change a value,
+create a copy with ``dto.model_copy(update={...})``.
+
+Step-specific fields of each ``*StepDto`` are what gets stored in the
+``step_data`` JSON column of ``pipeline_step``.
+"""
+
+from datetime import date, datetime
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from bikeflow.contracts.analyze_raw import DataQuality, Distributions, GeneralStatistics, TripAnomalies
+from bikeflow.storage.models import RunStatus, StepStatus, StepType, Trigger
+
+
+class _Dto(BaseModel):
+    """Common settings: immutable, unknown fields are an error."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class StepDto(_Dto):
+    """Fields shared by every pipeline step. Abstract: use one of the subclasses.
+
+    Attributes:
+        id: Step id; None until the step is saved.
+        step_type: Discriminator that selects the concrete subclass.
+        status: Step state.
+        started_at: When the step began.
+        completed_at: When the step finished, successfully or not.
+        error_message: Why the step failed; None unless status is FAILED.
+    """
+
+    id: int | None = None
+    step_type: StepType
+    status: StepStatus = StepStatus.PENDING
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+
+    @property
+    def order(self) -> int:
+        """Position of the step in the pipeline (1 = first), taken from ``step_type``.
+
+        Not a field: it is not serialized and never stored in ``step_data``.
+        """
+        return self.step_type.order
+
+
+class IngestedFileDto(_Dto):
+    """One trip file downloaded by the INGEST step of a run.
+
+    Attributes:
+        key: Path of the stored file relative to the data root, e.g.
+            ``runs/2026-10-18_15-30-00Z_run-42/steps/ingest/JC-202609-citibike-tripdata.csv.zip``.
+            Later steps read the file by this key.
+        month: Month of the trips, as its first day.
+        source_url: URL the file was downloaded from.
+        etag: ETag of the source file at download time (content version).
+        size: Size of the stored file in bytes.
+        downloaded_at: When the download finished.
+        scanned_trips: For a file extracted from the New York City file: how
+            many trips that file had. None for a file stored as is.
+        kept_trips: For an extracted file: how many trips end in our network
+            and were stored. None for a file stored as is.
+        cached: Taken from the INGEST cache, not downloaded in this run.
+    """
+
+    key: str
+    month: date
+    source_url: str
+    etag: str
+    size: int
+    downloaded_at: datetime
+    scanned_trips: int | None = None
+    kept_trips: int | None = None
+    cached: bool = False
+
+
+class IngestStepDto(StepDto):
+    """Download of the monthly trip datasets.
+
+    Attributes:
+        period_start: First day of the earliest downloaded month.
+        period_end: Last day of the latest downloaded month.
+        files: Downloaded files, oldest month first; empty until the step completes.
+    """
+
+    step_type: Literal[StepType.INGEST] = StepType.INGEST
+    period_start: date | None = None
+    period_end: date | None = None
+    files: tuple[IngestedFileDto, ...] = ()
+
+
+class AnalyzeRawStepDto(StepDto):
+    """Statistics of the raw trip dataset for the UI: anomalies, stations, distributions.
+
+    The groups are the ones of ``AnalyzeRawResult``; all are None until the
+    step completes. The per-station table is large, so it is stored as a file
+    and only its key is kept here.
+
+    Attributes:
+        general_statistics: Trips, period and stations of the dataset;
+            ``period_start`` and ``period_end`` are timezone-aware UTC.
+        data_quality: Missing values, duplicates, invalid records.
+        trip_anomalies: Long rides, short round trips, wrong durations.
+        distributions: Trips by bike type, rider type, hour, weekday, month.
+        total_stations: Station ids found in the trips, ours and outside the network.
+        stations_key: Path of the station table (CSV) relative to the data
+            root; served by ``GET /runs/{id}/analyze-raw/stations``.
+    """
+
+    step_type: Literal[StepType.ANALYZE_RAW] = StepType.ANALYZE_RAW
+    general_statistics: GeneralStatistics | None = None
+    data_quality: DataQuality | None = None
+    trip_anomalies: TripAnomalies | None = None
+    distributions: Distributions | None = None
+    total_stations: int | None = None
+    stations_key: str | None = None
+
+
+class StationActivityDto(_Dto):
+    """One row of the station table of ANALYZE_RAW, as served to the UI.
+
+    Attributes:
+        station_id: Station id as in the trips.
+        station_name: First name found for the id.
+        departures: Trips that started at the station.
+        arrivals: Trips that ended at the station.
+        in_network: Whether the station is ours (Jersey City / Hoboken), not a
+            New York station that only appears as a trip end or start.
+    """
+
+    station_id: str
+    station_name: str | None
+    departures: int
+    arrivals: int
+    in_network: bool
+
+
+class ProcessStepDto(StepDto):
+    """Cleaning and aggregation into the training dataset.
+
+    The dataset itself (station × hour, ~1 million rows) is stored as a Parquet
+    file; here are its key and a summary. All fields are None until the step
+    completes.
+
+    Attributes:
+        dataset_key: Path of the dataset (Parquet) relative to the data root.
+        rows: Station-hour rows in the dataset.
+        stations: Stations in the dataset (ours only, no New York ids).
+        period_start: First hour of the dataset, timezone-aware UTC.
+        period_end: Last hour of the dataset, timezone-aware UTC.
+        feature_columns: Model inputs, as ``ProcessResult.feature_columns``.
+        target_columns: What the model predicts: departures and arrivals.
+        dropped_rows: Removed trip rows by reason (duplicates, DST, ...).
+        weather_excluded_station_hours: Rows removed for missing weather.
+        loaded_months: Months of the INGEST files the dataset is built from.
+        departure_buffer_hours: Hours cut off at the end of the window.
+        weather_latitude: Latitude of the weather point used for all stations.
+        weather_longitude: Longitude of the weather point.
+        station_activity_assumption: How PROCESS decides when a station existed.
+        coverage_policy: How PROCESS limits the hours it trusts.
+        holiday_calendar: Which holidays ``is_holiday`` marks.
+    """
+
+    step_type: Literal[StepType.PROCESS] = StepType.PROCESS
+    dataset_key: str | None = None
+    rows: int | None = None
+    stations: int | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    feature_columns: tuple[str, ...] | None = None
+    target_columns: tuple[str, ...] | None = None
+    dropped_rows: dict[str, int] | None = None
+    weather_excluded_station_hours: int | None = None
+    loaded_months: tuple[date, ...] | None = None
+    departure_buffer_hours: int | None = None
+    weather_latitude: float | None = None
+    weather_longitude: float | None = None
+    station_activity_assumption: str | None = None
+    coverage_policy: str | None = None
+    holiday_calendar: str | None = None
+
+
+class AnalyzeFeaturesStepDto(StepDto):
+    """Statistics of the train-ready dataset for the UI: feature distributions, correlations."""
+
+    step_type: Literal[StepType.ANALYZE_FEATURES] = StepType.ANALYZE_FEATURES
+
+
+class TrainStepDto(StepDto):
+    """Model training and evaluation."""
+
+    step_type: Literal[StepType.TRAIN] = StepType.TRAIN
+
+
+AnyStepDto = Annotated[
+    IngestStepDto | AnalyzeRawStepDto | ProcessStepDto | AnalyzeFeaturesStepDto | TrainStepDto,
+    Field(discriminator="step_type"),
+]
+"""Any concrete step; Pydantic picks the subclass by ``step_type``."""
+
+
+class PipelineRunDto(_Dto):
+    """One execution of the pipeline with its steps.
+
+    Attributes:
+        id: Run id; None until the run is saved.
+        status: Overall state of the run.
+        trigger: Whether the run was started manually or by the scheduler.
+        window_months: Requested length of the trip data window, in months.
+        created_at: When the run was created.
+        updated_at: Last change of the run or any of its steps.
+        started_at: When the first step began.
+        completed_at: When the run finished, successfully or not.
+        steps: Steps in execution order.
+    """
+
+    id: int | None = None
+    status: RunStatus = RunStatus.CREATED
+    trigger: Trigger
+    window_months: int = Field(gt=0)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    steps: list[AnyStepDto] = []
